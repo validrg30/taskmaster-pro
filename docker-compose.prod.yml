@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # Serviciul 1: Aplicatia noastra Python
   backend:
-    build: ./backend  # Construieste din folderul 'backend'
+    image: valentin3005/taskmaster-backend:latest  # Construieste din folderul 'backend'
 #    ports:
 #      - "5000:5000"
     environment:
@@ -15,7 +15,7 @@ services:
         condition: service_healthy  # 👈 În loc de doar "- db"
 
   nginx:
-    build: ./nginx
+    image: valentin3005/taskmaster-nginx:latest
     ports:
     - "8080:8080"  # DOAR Nginx expune un port!
     depends_on:
