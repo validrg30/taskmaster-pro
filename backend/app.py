@@ -1,94 +1,117 @@
 import os
-from flask import Flask
-from datetime import datetime
+import socket
 import psycopg2
+from flask import Flask, jsonify
 
 app = Flask(__name__)
 
-DB_CONFIG = {
-    "host": "db",
-    "database": "taskdb",
-    "user": "myuser",
-    "password": "mypassword"
-}
-
-def get_conn():
-    return psycopg2.connect(**DB_CONFIG)
-
-def init_db():
-    """Creează tabela dacă nu există (rulat la startup)."""
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS request_logs (
-            id        SERIAL PRIMARY KEY,
-            hostname  TEXT NOT NULL,
-            timestamp TIMESTAMPTZ DEFAULT NOW()
+def get_db_version():
+    try:
+        conn = psycopg2.connect(
+            host="db",
+            database=os.getenv("POSTGRES_DB", "taskdb"),
+            user=os.getenv("POSTGRES_USER", "myuser"),
+            password=os.getenv("POSTGRES_PASSWORD", "mypassword")
         )
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
+        cur = conn.cursor()
+        cur.execute('SELECT version()')
+        version = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+        return f"✅ {version}"
+    except Exception as e:
+        return f"❌ {str(e)}"
+
+# Endpoint folosit de buton pentru cele 7 request-uri
+@app.route('/ping')
+def ping():
+    return jsonify({
+        "hostname": socket.gethostname(),
+        "request": "OK"
+    })
 
 @app.route('/')
 def home():
-    hostname = os.getenv('HOSTNAME', 'unknown')
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
+    hostname = socket.gethostname()
+    db_status = get_db_version()
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>TaskMaster Load Balancer Demo</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #0d1117; color: #c9d1d9; }}
+            h1 {{ color: #58a6ff; }}
+            .card {{ background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; margin: 10px 0; }}
+            .hostname {{ color: #3fb950; font-size: 1.2em; font-weight: bold; }}
+            .db {{ color: #8b949e; font-size: 0.85em; margin-top: 8px; }}
+            button {{
+                background: #238636; color: white; border: none;
+                padding: 12px 24px; border-radius: 6px; cursor: pointer;
+                font-size: 1em; margin: 20px 0;
+            }}
+            button:hover {{ background: #2ea043; }}
+            button:disabled {{ background: #3d4450; cursor: not-allowed; }}
+            .result {{ 
+                padding: 10px 15px; margin: 5px 0; border-radius: 6px;
+                background: #1c2128; border-left: 4px solid #58a6ff;
+                animation: fadeIn 0.3s ease;
+            }}
+            @keyframes fadeIn {{ from {{ opacity: 0; transform: translateX(-10px); }} to {{ opacity: 1; transform: translateX(0); }} }}
+            .badge {{ display: inline-block; padding: 2px 8px; border-radius: 12px; background: #388bfd26; color: #58a6ff; font-size: 0.8em; }}
+        </style>
+    </head>
+    <body>
+        <h1>🐳 TaskMaster Load Balancer Demo</h1>
 
-        # 1️⃣ Inserăm log-ul curent
-        cur.execute(
-            "INSERT INTO request_logs (hostname) VALUES (%s)",
-            (hostname,)
-        )
-        conn.commit()
+        <div class="card">
+            <div>Această pagină a fost servită de:</div>
+            <div class="hostname">🟢 {hostname}</div>
+            <div class="db">{db_status}</div>
+        </div>
 
-        # 2️⃣ Citim ultimele 10 loguri
-        cur.execute("""
-            SELECT id, hostname, timestamp
-            FROM request_logs
-            ORDER BY id DESC
-            LIMIT 10
-        """)
-        logs = cur.fetchall()
+        <button id="btn" onclick="doRefreshes()">
+            🔄 Fă 7 request-uri separate
+        </button>
 
-        cur.close()
-        conn.close()
+        <div id="results"></div>
 
-        # 3️⃣ Construim HTML-ul
-        rows = "".join(
-            f"<tr><td>#{row[0]}</td><td>{row[1]}</td><td>{row[2].strftime('%Y-%m-%d %H:%M:%S')}</td></tr>"
-            for row in logs
-        )
+        <script>
+            async function doRefreshes() {{
+                const btn = document.getElementById('btn');
+                const results = document.getElementById('results');
+                btn.disabled = true;
+                btn.textContent = '⏳ Se trimit request-uri...';
+                results.innerHTML = '';
 
-        return f"""
-        <html>
-        <head>
-            <style>
-                body {{ font-family: monospace; padding: 20px; background: #1e1e2e; color: #cdd6f4; }}
-                h2 {{ color: #89b4fa; }}
-                table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
-                th, td {{ border: 1px solid #45475a; padding: 8px 12px; text-align: left; }}
-                th {{ background: #313244; color: #cba6f7; }}
-                tr:nth-child(even) {{ background: #181825; }}
-                tr:first-child {{ background: #a6e3a1; color: #1e1e2e; font-weight: bold; }}
-            </style>
-        </head>
-        <body>
-            <h2>🟢 Backend: <code>{hostname}</code></h2>
-            <h3>📋 Ultimele 10 request-uri:</h3>
-            <table>
-                <tr><th>#</th><th>Hostname (container)</th><th>Timestamp</th></tr>
-                {rows}
-            </table>
-        </body>
-        </html>
-        """
-    except Exception as e:
-        return f"<h2>🔴 Backend: <code>{hostname}</code> | Eroare: {e}</h2>"
+                for (let i = 1; i <= 7; i++) {{
+                    try {{
+                        const response = await fetch('/ping');
+                        const data = await response.json();
+                        const div = document.createElement('div');
+                        div.className = 'result';
+                        div.innerHTML = `
+                            <span class="badge">Request ${{i}}/7</span>
+                            &nbsp; Backend: <strong>${{data.hostname}}</strong>
+                        `;
+                        results.appendChild(div);
+                    }} catch (e) {{
+                        const div = document.createElement('div');
+                        div.className = 'result';
+                        div.style.borderColor = '#f85149';
+                        div.textContent = `Request ${{i}}/7: ❌ Eroare`;
+                        results.appendChild(div);
+                    }}
+                    await new Promise(r => setTimeout(r, 300));
+                }}
 
+                btn.disabled = false;
+                btn.textContent = '🔄 Fă 7 request-uri separate';
+            }}
+        </script>
+    </body>
+    </html>
+    """
 
 if __name__ == "__main__":
-    init_db()  # 👈 Inițializare la pornire
     app.run(host='0.0.0.0', port=5000)
