@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # Serviciul 1: Aplicatia noastra Python
+  backend:
+    build: ./backend  # Construieste din folderul 'backend'
+#    ports:
+#      - "5000:5000"
+    environment:
+      - POSTGRES_USER=myuser
+      - POSTGRES_PASSWORD=mypassword
+      - POSTGRES_DB=taskdb
+    depends_on:
+      db:
+        condition: service_healthy  # 👈 În loc de doar "- db"
+
+  nginx:
+    build: ./nginx
+    ports:
+    - "8080:8080"  # DOAR Nginx expune un port!
+    depends_on:
+    - backend
+
+
+  # Serviciul 2: Baza de date (folosim imagine oficiala)
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=myuser
+      - POSTGRES_PASSWORD=mypassword
+      - POSTGRES_DB=taskdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # Persistenta datelor!
+    healthcheck:  # 👈 ADAUGĂ ASTA
+      test: ["CMD-SHELL", "pg_isready -U myuser -d taskdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Serviciul 3: Interfata vizuala pentru DB
+  adminer:
+    image: adminer
+    ports:
+      - "8081:8080"
+
+# Definim volumul pentru date (ca sa nu pierdem datele cand oprim containerele)
+volumes:
+  postgres_data:

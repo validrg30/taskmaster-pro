@@ -15,11 +15,9 @@ services:
         condition: service_healthy  # 👈 În loc de doar "- db"
 
   nginx:
-    image: nginx:alpine
+    build: ./nginx
     ports:
     - "8080:8080"  # DOAR Nginx expune un port!
-    volumes:
-    - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
     - backend
 
