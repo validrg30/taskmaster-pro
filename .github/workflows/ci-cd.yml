@@ -1,0 +1,93 @@
+name: taskmaster CI/CD
+
+on:
+  pull_request:
+    branches: [ "main" ]
+  push:
+    branches: [ "main", "develop" ]
+    tags: [ "v*" ]
+
+env:
+  IMAGE_OWNER: ${{ secrets.DOCKER_USERNAME }}
+  BACKEND_IMAGE: taskmaster-backend
+  NGINX_IMAGE: taskmaster-nginx
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build + start stack (Compose)
+        run: |
+          docker compose -p ci up -d --build
+          docker compose -p ci ps
+
+      - name: Wait until nginx is up
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8080/ >/dev/null; then
+              echo "OK"; exit 0
+            fi
+            echo "waiting... ($i/30)"
+            sleep 2
+          done
+          echo "Timeout"; docker compose -p ci logs; exit 1
+
+      - name: Tear down
+        if: always()
+        run: docker compose -p ci down -v
+
+  cd:
+    needs: ci
+    runs-on: ubuntu-latest
+    # Nu facem push de imagini pe PR-uri
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}  # sau token [web:182]
+
+      # TAG-uri pentru BACKEND
+      - name: Docker meta (backend)
+        id: meta_backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_OWNER }}/${{ env.BACKEND_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=ref,event=tag
+
+      - name: Build & push (backend)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta_backend.outputs.tags }}
+          labels: ${{ steps.meta_backend.outputs.labels }}
+
+      # TAG-uri pentru NGINX
+      - name: Docker meta (nginx)
+        id: meta_nginx
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_OWNER }}/${{ env.NGINX_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=ref,event=tag
+
+      - name: Build & push (nginx)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./nginx
+          push: true
+          tags: ${{ steps.meta_nginx.outputs.tags }}
+          labels: ${{ steps.meta_nginx.outputs.labels }}
