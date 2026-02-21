@@ -123,7 +123,7 @@ def home():
                 btn.textContent = '⏳ Se procesează...';
                 results.innerHTML = '';
 
-                for (let i = 1; i <= 7; i++) {{
+                for (let i = 1; i <= 70; i++) {{
                     try {{
                         const response = await fetch('/ping');
                         const data = await response.json();
@@ -135,7 +135,7 @@ def home():
                 }}
 
                 btn.disabled = false;
-                btn.textContent = '🔄 Generează 7 request-uri rapide';
+                btn.textContent = '🔄 Generează 7766567 request-uri rapide';
             }}
         </script>
     </body>
